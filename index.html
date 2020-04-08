@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Asteroid of Madness</title>
+    <script type="text/javascript" src="phaser.min.js"></script>
+    <style>
+        body {
+            cursor:url(assets/target.png),auto;
+        }
+    </style>
+
+</head>
+<body>
+
+
+<script type="text/javascript">
+    var game = new Phaser.Game(1366,600,Phaser.AUTO, '',{preload:preload,create:create,update:update});
+    var w = 1366 ,
+        h = 600;
+
+
+    //player
+    var player; // pemain
+    var ACCELERATION = 500; // akselerasi pemain
+    var MIN_DISTANCE = 50; // jarak dari pemain ke cursor
+    var score= 0; // score pemain
+    var timerrapidgone; // timer untuk mad laser gun
+    var maxtimerapidgone = 5; // durasi mad laser gun
+    var rapiddone = false; // indikator apakah mad laser gun sudah pernah dilakukan
+    var cursors; // untuk kontrol panah keyboard
+    var bullet_number = 5; // jumlah peluru pemain
+    var bullet_speed = 2000; // kecepatan peluru
+    var bullets; // grup peluru
+    var shot_delay = 250; // delay dari masing-masing peluru
+    var last_shot_timestamp; // variabel waktu terakhir menembak
+
+    //enemy
+    var hostiles; // asteroid 1
+    var hostiles2; // asteroid 2
+    var hostile_speed = 200; // kecepatan asteroid 1
+    var hostile_x = 10; // kecepatan asteroid 2
+    var fire; // sprite ledakan
+
+    //gameplay
+    var timer; // timer permainan
+    var time = 1; // pengurang
+    var max_time = 60; // durasi permainan
+    var countdown; // text dari durasi permainan
+    var start_panel; // pop up menu utama
+    var lose_panel; // pop up jika kalah
+    var win_panel; // pop up jika menang
+    var activated_panel; // pop up jika mad laser gun aktif
+    var state = "start"; // game state
+
+
+  //sound
+
+    var explosion; // suara ledakan
+    var laser; // suara laser
+    var bg; // bgm
+    var win; //suara kemenangan
+    var activated_audio ; // suara mad laser gun aktif
+    var activated_audio_toggle = true; // indikator mad laser gun
+
+    function preload() {
+        game.load.image('bg','assets/starfield.png');
+        game.load.spritesheet('spaceship','assets/spaceshipsmall.png',92,64);
+        game.load.spritesheet('explode', 'assets/explode.png',62,67);
+        game.load.image('bullet', 'assets/bullet43.png');
+        game.load.image('asteroid2', 'assets/asteroid2.png');
+        game.load.image('asteroid1', 'assets/asteroid1.png');
+        game.load.image('start', 'assets/start.png');
+        game.load.image('lose', 'assets/lose.png');
+        game.load.image('win', 'assets/win.png');
+        game.load.image('activated', 'assets/activated.png');
+        game.load.audio('explosion', ['assets/explosion.mp3','assets/explosion.ogg']);
+        game.load.audio('laser', ['assets/laser_gun.mp3','assets/laser_gun.ogg']);
+        game.load.audio('bg', 'assets/bg.mp3');
+        game.load.audio('winner', ['assets/win.mp3','assets/win.ogg']);
+        game.load.audio('activatedaudio', ['assets/activated.mp3','assets/activated.ogg']);
+    }
+
+    function create() {
+
+        game.physics.startSystem(Phaser.Physics.ARCADE); // memberikan physics pada game
+        var background = game.add.tileSprite(0,0,1366,600,'bg'); // menempelkan background
+        cursors = game.input.keyboard.createCursorKeys(); // memasukkan kursor
+
+
+        player = game.add.sprite(game.world.width/2,game.world.height/2,'spaceship'); // membuat player di tengah layar
+        player.anchor.setTo(0.5,0.5); // membuat anchor ditengah player
+        game.physics.arcade.enable(player); // memberikan physics pada player
+
+
+
+        bullets = game.add.group(); // membuat grup peluru
+        bullets.enableBody = true; // enable body peluru
+        for (var i = 0; i <= bullet_number; i++) {
+
+            var b = bullets.create(0,0, 'bullet');
+            b.anchor.setTo(0.5,0.5);
+            game.physics.arcade.enable(b);
+            b.body.allowGravity = false;
+            b.kill();
+        } // membuat peluru sejumlah bullet_number yang gravity nya dimatikan, diberi physics, tetapi di kill terlebih dulu
+
+
+
+        hostiles = game.add.group(); // membuat asteroid dan enable body
+        hostiles.enableBody = true;
+        hostiles2 = game.add.group();// membuat asteroid dan enable body
+        hostiles2.enableBody = true;
+
+        game.time.events.loop(Phaser.Timer.SECOND * 1.25, createHostiles1, this); // looping tiap 1.25 detik untuk membuat asteroid
+        game.time.events.loop(Phaser.Timer.SECOND * 1.25, createHostiles2, this);// looping tiap 1.25 detik untuk membuat asteroid
+
+
+        start_panel = game.add.sprite(w/2,h/2,'start'); // membuat panel menu awal lalu di kill dulu
+        start_panel.anchor.setTo(0.5,0.5);
+        start_panel.kill();
+
+        lose_panel = game.add.sprite(w/2,h/2,'lose'); // membuat panel kalah lalu di kill dulu
+        lose_panel.anchor.setTo(0.5,0.5);
+        lose_panel.kill();
+
+        win_panel = game.add.sprite(w/2,h/2,'win'); // membuat panel menang lalu di kill dulu
+        win_panel.anchor.setTo(0.5,0.5);
+        win_panel.kill();
+
+        activated_panel = game.add.sprite(w/2 ,h/2-200,'activated'); // membuat panel mad laser gun lalu di kill dulu
+        activated_panel.anchor.setTo(0.5,0.5);
+        activated_panel.kill();
+
+        scoreText=  game.add.text(16,16,'SCORE :' + score, {fontSize:'32px', fill:'#FFFFFF'}); // pasang tulisan skor
+
+
+
+        timer = game.time.create(false);// membuat timer yang berdetik tiap 1 detik
+        timer.loop(1000, updateTimer, this);
+        countdown=  game.add.text(683,16, '60', {fontSize:'32px', fill:'#FFFFFF'}); // tulisan timer di atas layar
+
+        timerrapidgone = game.time.create(false); //membuat timer mad laser gun yang berdetik tiap 1 detik
+        timerrapidgone.loop(1000, updateTimerRapid, this);
+
+        fire = game.add.sprite(0,0, "explode"); // memasukkan sprite ledakan dengan animasi yang di kill dulu
+        fire.anchor.setTo(0.5,0.5);
+        fire.animations.add('destroyed', [3,2,1,0], 10, false);
+        fire.kill();
+
+
+
+        explosion  = game.add.audio('explosion'); // add sound ledakan
+        laser = game.add.audio('laser'); // add sound laser
+        win = game.add.audio('winner'); // add sound kemenangan
+        activated_audio = game.add.audio('activatedaudio'); // add sound mad laser gun
+        bg = game.add.audio('bg'); // add background music
+        bg.volume = 0.3; // membuat volume bgm menjadi 30%
+        bg.loopFull(); // membuat bgm melakukan looping jika sudah selesai
+
+
+    }
+
+    function update(){
+
+        if(state == "start" && start_panel.alive == false)
+        {
+            start_panel.revive(); // memunculkan kembali pop up menu utama
+        }
+
+
+        if(state == "start" && game.input.keyboard.isDown(Phaser.Keyboard.SPACEBAR) ){
+            start_panel.kill();
+            state = "play";
+            player.reset(game.world.width/2,game.world.height/2);
+            timer.start();
+
+        }
+
+        if(state == "play")
+        {
+            var distance = game.math.distance(player.x,player.y, game.input.mousePointer.x, game.input.mousePointer.y);
+
+            if(distance > MIN_DISTANCE){
+                var rotation = game.math.angleBetween(player.x,player.y, game.input.mousePointer.x, game.input.mousePointer.y);
+                player.rotation = game.physics.arcade.angleToXY(player, game.input.mousePointer.x, game.input.mousePointer.y);
+                if(cursors.up.isDown || game.input.keyboard.isDown(Phaser.Keyboard.W)) {
+                    player.body.velocity.x = ACCELERATION * Math.cos(rotation);
+                    player.body.velocity.y = ACCELERATION * Math.sin(rotation);
+                }
+                else
+                {
+                    player.body.velocity.setTo(0,0);
+                }
+            }
+            else
+            {
+                player.body.velocity.setTo(0,0);
+
+            }
+
+
+
+
+            if(game.input.mousePointer.isDown){
+                shotBullet();
+            }
+
+
+
+            hostiles.forEachAlive(hostileIncoming,this);
+            hostiles2.forEachAlive(hostileIncoming2,this);
+
+
+            if(max_time  < 30)
+            {
+                hostile_x = 12.5;
+                hostile_speed = 275;
+            }
+
+            if(max_time <= 0)
+            {
+                timer.pause();
+                win.play();
+                state = "win";
+
+            }
+
+
+        }
+
+        if(state == "lose")
+        {
+            lose_panel.revive();
+        }
+
+
+        if(state == "lose" && game.input.keyboard.isDown(Phaser.Keyboard.SPACEBAR))
+        {
+            lose_panel.kill();
+            hostile_x = 10;
+            hostile_speed = 200;
+            state = "play";
+            shot_delay = 250;
+
+
+            scoreText.text ="SCORE : 0 ";
+            player.reset(game.world.width/2,game.world.height/2);
+            max_time = 60;
+            timer.resume();
+
+        }
+
+
+        if(state == "win")
+        {
+            win_panel.revive();
+            hostiles.forEachAlive(killHostile1,this);
+            hostiles2.forEachAlive(killHostile2,this);
+        }
+
+        if(state == "win" && game.input.keyboard.isDown(Phaser.Keyboard.SPACEBAR))
+        {
+            win_panel.kill();
+            hostile_x = 10;
+            hostile_speed = 200;
+            state = "play";
+            activated_panel.kill();
+            shot_delay = 250;
+
+            scoreText.text ="SCORE : 0 ";
+            activated_audio_toggle = true;
+            score = 0;
+            max_time = 60;
+            timerrapidgone.pause();
+            maxtimerapidgone = 5;
+            player.reset(game.world.width/2,game.world.height/2);
+            timer.resume();
+        }
+
+
+        if(score % 100 == 0 && score != 0)
+        {
+            if(activated_audio_toggle == true)
+            {
+                activated_audio.play();
+                activated_audio_toggle = false;
+
+            }
+
+            if(rapiddone == false) {
+                timerrapidgone.start();
+            }
+            else
+            {
+                timerrapidgone.resume();
+            }
+        }
+
+    }
+
+    function shotBullet(){
+        //cari peluru yang ada di grup yang di kill pertama
+        var b = bullets.getFirstDead();
+
+        if(last_shot_timestamp == undefined)
+        {
+            last_shot_timestamp = 0;
+        }
+
+        if(game.time.now - last_shot_timestamp < shot_delay){
+
+            return;
+        }
+        else{
+            last_shot_timestamp = game.time.now;
+        }
+
+        if(b != null || b != undefined)
+        {
+            laser.play();
+            b.revive();
+            b.checkWorldBounds = true;
+            b.outOfBoundsKill = true;
+            b.reset(player.x, player.y);
+            var rotation = game.math.angleBetween(player.x,player.y, game.input.mousePointer.x, game.input.mousePointer.y);
+            b.body.velocity.x = bullet_speed * Math.cos(rotation);
+            b.body.velocity.y = bullet_speed * Math.sin(rotation);
+
+        }
+
+    }
+
+    function createHostiles1(){
+        var h1 = hostiles.create(-32, game.world.randomY, 'asteroid1');
+        h1.health = 20;
+    }
+
+    function createHostiles2(){
+        var h2 = hostiles2.create(1366, game.world.randomY, 'asteroid2');
+        h2.health = 20;
+    }
+
+    function hostileIncoming(hostile){
+
+        var rotation = game.math.angleBetween(hostile.x,hostile.y, player.x, player.y);
+
+        hostile.body.velocity.x = hostile_speed * Math.cos(rotation);
+        hostile.body.velocity.y = hostile_speed * Math.sin(rotation);
+
+        var a = hostile.getBounds();
+        var b = player.getBounds();
+        var c = bullets.getBounds();
+
+        if(Phaser.Rectangle.intersects(a,b))
+        {
+            explosion.play();
+            player.kill();
+            hostiles.forEachAlive(killHostile1,this);
+            hostiles2.forEachAlive(killHostile2,this);
+            score = 0;
+            activated_panel.kill();
+            activated_audio_toggle = true;
+            timer.pause();
+            timerrapidgone.pause();
+            maxtimerapidgone = 5;
+            max_time = 61;
+            state = "lose";
+
+        }
+
+        if(Phaser.Rectangle.intersects(a,c))
+        {
+            hostile.damage(1);
+        }
+
+        if(hostile.health <= 0)
+        {
+            explosion.play();
+            fire.reset(hostile.x, hostile.y);
+            fire.revive();
+            fire.animations.play('destroyed');
+            fire.events.onAnimationComplete.add(function(){
+                fire.kill();
+            },this);
+            score += 10;
+            scoreText.text = "SCORE : " + score;
+        }
+
+        if(hostile.x > game.world.width) {
+            hostile.kill();
+        }
+    }
+
+    function hostileIncoming2(hostile2){
+
+        hostile2.x -= hostile_x;
+
+        var a = hostile2.getBounds();
+        var b = player.getBounds();
+        var c = bullets.getBounds();
+        if(Phaser.Rectangle.intersects(a,b))
+        {
+            explosion.play();
+            player.kill();
+            hostiles.forEachAlive(killHostile1,this);
+            hostiles2.forEachAlive(killHostile2,this);
+
+            score = 0;
+            activated_panel.kill();
+            max_time = 61;
+            activated_audio_toggle = true;
+            timer.pause();
+            timerrapidgone.pause();
+            maxtimerapidgone = 5;
+            state = "lose";
+
+        }
+
+        if(Phaser.Rectangle.intersects(a,c))
+        {
+
+            hostile2.damage(1);
+        }
+
+        if(hostile2.health <= 0)
+        {
+            explosion.play();
+            fire.reset(hostile2.x, hostile2.y);
+            fire.revive();
+            fire.animations.play('destroyed');
+            fire.events.onAnimationComplete.add(function(){
+
+                fire.kill();
+            },this);
+            score += 10;
+            scoreText.text = "SCORE : " + score;
+        }
+
+        if(hostile2.x > game.world.width) {
+            hostile2.kill();
+        }
+    }
+
+    function updateTimer(){
+
+         max_time = max_time - time;
+         countdown.text = max_time;
+         if(max_time <= 0 )
+         {
+             timer.pause();
+         }
+    }
+
+    function updateTimerRapid(){
+        maxtimerapidgone -= time;
+        if(maxtimerapidgone > 0 )
+        {
+            activated_panel.revive();
+            shot_delay = 150;
+        }
+        else
+        {
+            shot_delay = 250;
+            activated_audio_toggle = true;
+            rapiddone = true;
+            maxtimerapidgone = 5;
+            activated_panel.kill();
+            timerrapidgone.pause();
+        }
+    }
+
+    function killHostile1(hostile)
+    {
+        hostile.kill();
+    }
+
+    function killHostile2(hostile2)
+    {
+        hostile2.kill();
+    }
+
+
+   </script>
+</body>
+</html>
